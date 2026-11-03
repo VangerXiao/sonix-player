@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/reboot.h>
 #include <unistd.h>
 
@@ -56,6 +57,7 @@ typedef struct {
 
 static slide_t slide_off;
 static slide_t slide_reboot;
+static slide_t slide_compas;
 
 bool powermenu_is_open(void) { return panel && !lv_obj_is_hidden(panel); }
 
@@ -126,6 +128,22 @@ static void do_reboot(void) {
 	sleep(8);
 	reboot(RB_AUTOBOOT);
 	execl("/bin/sh", "sh", "-c", "reboot", (char *)NULL);
+}
+
+// Dual boot: the CompasOS-side hook switches to Sonix only while
+// /sonix/boot exists on the card, and that marker is left in place so a plain
+// restart keeps Sonix. Leaving is therefore an explicit choice: drop the
+// marker, then take the same shutdown path as an ordinary restart.
+static void do_reboot_compas(void) {
+	printf("power: rebooting into CompasOS\n");
+	// /usr/data is this player's data directory, and under dual boot that is
+	// sonix/data on the card. CompasOS's boot hook looks for this flag there,
+	// clears it and the Sonix marker, and starts CompasOS instead.
+	int fd = open("/usr/data/boot_compas", O_CREAT | O_WRONLY, 0644);
+	if (fd >= 0) {
+		close(fd);
+	}
+	do_reboot();
 }
 
 static void cancel_cb(lv_event_t *e) {
@@ -284,6 +302,8 @@ void powermenu_init(gui_config_t *cfg) {
 	// (red) and reboot (blue), and an accent set to red or orange would make
 	// them impossible to tell apart at a glance.
 	make_slide(pills, &slide_reboot, &icon_reboot, lv_color_make(0, 122, 255), "powermenu_slide_to_restart", do_reboot);
+	// Same icon, a different colour: this one leaves for the other OS.
+	make_slide(pills, &slide_compas, &icon_reboot, lv_color_make(52, 199, 89), "powermenu_slide_to_compas", do_reboot_compas);
 
 	// Cancel: a round button at the bottom centre that goes red under the
 	// finger, with its label floating underneath.
